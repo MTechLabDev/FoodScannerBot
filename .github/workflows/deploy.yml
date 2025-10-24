@@ -1,0 +1,111 @@
+name: Build and Deploy
+
+on:
+  push:
+    branches:
+      - master
+
+permissions:
+  contents: write
+
+jobs:
+  build_and_deploy:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v3
+
+      - name: Set up JDK 21
+        uses: actions/setup-java@v3
+        with:
+          distribution: 'zulu'
+          java-version: '21'
+
+      - name: Cache Gradle dependencies
+        uses: actions/cache@v3
+        with:
+          path: ~/.gradle/caches
+          key: ${{ runner.os }}-gradle-${{ hashFiles('**/*.gradle*', '**/gradle-wrapper.properties') }}
+          restore-keys: |
+            ${{ runner.os }}-gradle-
+
+      - name: Make gradlew executable
+        run: chmod +x gradlew
+
+      - name: Build jar
+        run: ./gradlew build
+
+      - name: Resolve built JAR path and version
+        id: artifact
+        shell: bash
+        run: |
+          JAR_PATH=$(ls -1 build/libs/*.jar | grep -v -- '-plain\.jar$' | head -n 1)
+          [ -z "$JAR_PATH" ] && echo "Jar not found" && exit 1
+
+          VERSION=$(./gradlew -q printVersion)
+          TAG=$(./gradlew -q printTag)
+
+          echo "JAR_PATH=$JAR_PATH" >> $GITHUB_ENV
+          echo "JAR_NAME=$(basename "$JAR_PATH")" >> $GITHUB_ENV
+          echo "VERSION=$VERSION" >> $GITHUB_ENV
+          echo "TAG=$TAG" >> $GITHUB_ENV
+
+      - name: Ensure remote directories exist
+        uses: appleboy/ssh-action@master
+        with:
+          host: ${{ secrets.SERVER_HOST }}
+          username: ${{ secrets.SERVER_USER }}
+          password: ${{ secrets.SERVER_PASSWORD }}
+          port: ${{ secrets.SERVER_PORT }}
+          script: |
+            mkdir -p ${{ secrets.SERVER_FOLDER }}
+
+      - name: Sync Jar via rsync
+        run: |
+          sshpass -p "${{ secrets.SERVER_PASSWORD }}" rsync -av --delete --omit-dir-times --no-perms \
+            -e "ssh -o StrictHostKeyChecking=no -p ${{ secrets.SERVER_PORT }}" \
+            "${{ env.JAR_PATH }}" \
+            "${{ secrets.SERVER_USER }}@${{ secrets.SERVER_HOST }}:${{ secrets.SERVER_FOLDER }}/FoodScannerBot.jar"
+
+      - name: Sync docker-compose.yml via rsync
+        run: |
+          sshpass -p "${{ secrets.SERVER_PASSWORD }}" rsync -av --omit-dir-times --no-perms \
+            -e "ssh -o StrictHostKeyChecking=no -p ${{ secrets.SERVER_PORT }}" \
+            "docker-compose.yml" \
+            "${{ secrets.SERVER_USER }}@${{ secrets.SERVER_HOST }}:${{ secrets.SERVER_FOLDER }}/docker-compose.yml"
+
+      - name: Restart Docker compose
+        uses: appleboy/ssh-action@master
+        with:
+          host: ${{ secrets.SERVER_HOST }}
+          username: ${{ secrets.SERVER_USER }}
+          password: ${{ secrets.SERVER_PASSWORD }}
+          port: ${{ secrets.SERVER_PORT }}
+          script: |
+            cd ${{ secrets.SERVER_FOLDER }}
+            echo "🚀 Restarting bot"
+            docker compose down
+            docker compose up -d
+
+      - name: Create version tag
+        id: create_version_tag
+        run: |
+          VERSION=$(./gradlew -q printVersion)
+          TAG=$(./gradlew -q printTag)
+          echo "VERSION=$VERSION" >> $GITHUB_ENV
+          echo "TAG=$TAG" >> $GITHUB_ENV
+          git config user.name "GitHub Actions"
+          git config user.email "actions@github.com"
+          git tag $TAG
+          git push origin $TAG
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Upload to GitHub Release
+        uses: ncipollo/release-action@v1
+        with:
+          tag: ${{ env.TAG }}
+          name: ${{ env.VERSION }}
+          artifacts: build/libs/*.jar
+          token: ${{ secrets.GITHUB_TOKEN }}

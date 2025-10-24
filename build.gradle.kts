@@ -32,8 +32,37 @@ dependencies {
     annotationProcessor("org.projectlombok:lombok")
     testImplementation("org.springframework.boot:spring-boot-starter-test")
     testRuntimeOnly("org.junit.platform:junit-platform-launcher")
+
+    // dotenv
+    implementation("io.github.cdimascio:dotenv-kotlin:6.4.1")
+
+    // telegram
+    implementation("org.telegram:telegrambots-springboot-longpolling-starter:9.2.0")
+    implementation("org.telegram:telegrambots-client:9.2.0")
+
+    // barcodes
+    implementation("com.google.zxing:core:3.5.3")
+    implementation("com.google.zxing:javase:3.5.3")
+
+    // http
+    implementation("com.fasterxml.jackson.core:jackson-databind:2.17.2")
 }
 
 tasks.withType<Test> {
     useJUnitPlatform()
+}
+
+val buildNumber: String = System.getenv("GITHUB_RUN_NUMBER") ?: "local"
+version = "1.0.$buildNumber"
+
+tasks.register("printVersion") {
+    doLast {
+        println(rootProject.name+"-"+version)
+    }
+}
+
+tasks.register("printTag") {
+    doLast {
+        println("1.0.$buildNumber")
+    }
 }

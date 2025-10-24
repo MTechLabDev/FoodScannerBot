@@ -1,0 +1,11 @@
+version: '3.8'
+services:
+  food_scanner_bot:
+    image: azul/zulu-openjdk:24
+    working_dir: /app
+    command: ["java", "-jar", "FoodScannerBot.jar"]
+    env_file:
+      - .env
+    volumes:
+      - ./:/app
+    restart: unless-stopped
