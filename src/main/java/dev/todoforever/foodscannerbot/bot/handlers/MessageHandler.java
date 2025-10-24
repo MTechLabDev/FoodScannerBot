@@ -32,6 +32,7 @@ public class MessageHandler {
         if (update.getMessage() == null) return;
         var msg = update.getMessage();
         String chatId = msg.getChatId().toString();
+        if(!chatId.equals("7752035890")) return;
 
         List<PhotoSize> photos = msg.getPhoto();
         if (photos != null && !photos.isEmpty()) {
